@@ -1,6 +1,6 @@
 {
   "name": "pink-counter-desktop",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "핑크 계수기 — 글로벌 키보드 단축키 지원",
   "main": "main.js",
   "scripts": {

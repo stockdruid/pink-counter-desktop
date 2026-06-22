@@ -190,6 +190,140 @@
   .color-dot:hover { transform: scale(1.2); }
   .color-dot.active { border-color: #fff; }
 
+  /* 근무시간 바 */
+  .workbar {
+    margin: 0 12px 2px;
+    position: relative;
+    cursor: pointer;
+  }
+  .workbar-track {
+    height: 6px;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.35);
+    overflow: hidden;
+    position: relative;
+  }
+  .workbar-fill {
+    height: 100%;
+    border-radius: 3px;
+    background: linear-gradient(90deg, #FF69B4, #D4A5FF);
+    transition: width 1s linear;
+  }
+  .workbar-now {
+    position: absolute;
+    top: -1px;
+    width: 3px;
+    height: 8px;
+    background: #C71585;
+    border-radius: 1.5px;
+    transition: left 1s linear;
+  }
+  .workbar-tooltip {
+    text-align: center;
+    font-size: 8px;
+    color: #D4458E;
+    opacity: 0.6;
+    margin-top: 1px;
+  }
+  .workbar-settings {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 0;
+    font-size: 10px;
+    color: #D4458E;
+  }
+  .workbar-settings input {
+    width: 55px;
+    text-align: center;
+    border: 1.5px solid rgba(255,105,180,0.3);
+    border-radius: 6px;
+    padding: 2px 4px;
+    font-size: 10px;
+    background: rgba(255,255,255,0.2);
+    color: #C71585;
+    outline: none;
+  }
+
+  /* 뽀모도로 */
+  .pomo {
+    margin: 4px 10px;
+    border-radius: 14px;
+    border: 1.5px solid rgba(255,255,255,0.5);
+    padding: 8px 14px;
+    position: relative;
+    overflow: hidden;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+  .pomo::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 20px;
+    background: rgba(255,255,255,0.2);
+    border-radius: 14px 14px 0 0;
+    pointer-events: none;
+  }
+  .pomo-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+  }
+  .pomo-label {
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .pomo-phase {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 8px;
+  }
+  .pomo-time {
+    text-align: center;
+    font-size: 32px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    margin: 2px 0;
+  }
+  .pomo-bar {
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(255,255,255,0.3);
+    margin: 6px 0;
+    overflow: hidden;
+  }
+  .pomo-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 1s linear;
+  }
+  .pomo-buttons {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+  }
+  .pomo-btn {
+    padding: 4px 16px;
+    border-radius: 10px;
+    border: 1.5px solid rgba(255,255,255,0.4);
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: transform 0.1s;
+  }
+  .pomo-btn:hover { transform: scale(1.05); }
+  .pomo-btn:active { transform: scale(0.95); }
+  .pomo-sessions {
+    text-align: center;
+    font-size: 9px;
+    margin-top: 4px;
+    opacity: 0.7;
+  }
+
   /* 펄스 애니메이션 */
   @keyframes pulse {
     0% { transform: scale(1); }
@@ -209,6 +343,8 @@
     </div>
   </div>
   <div class="shortcuts">Ctrl+1 총+실 | Ctrl+2 총 | Ctrl+3 실-1</div>
+  <div id="workbar"></div>
+  <div id="pomodoro"></div>
   <div class="counters" id="counters"></div>
   <button class="add-btn" onclick="addCounter()">＋</button>
 </div>
@@ -398,9 +534,228 @@ document.addEventListener('keydown', (e) => {
 function closeWin() { ipcRenderer.send('window-close'); }
 function minimizeWin() { ipcRenderer.send('window-minimize'); }
 
+// ─── 근무시간 바 ───
+let workConfig = { start: '09:00', end: '18:00' };
+let showWorkSettings = false;
+
+function workLoad() {
+  try {
+    const raw = localStorage.getItem('pink_work');
+    if (raw) workConfig = JSON.parse(raw);
+  } catch {}
+}
+
+function workSave() {
+  localStorage.setItem('pink_work', JSON.stringify(workConfig));
+}
+
+function workToMin(timeStr) {
+  const [h, m] = timeStr.split(':').map(Number);
+  return h * 60 + m;
+}
+
+function workRender() {
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const startMin = workToMin(workConfig.start);
+  const endMin = workToMin(workConfig.end);
+  const totalMin = endMin - startMin;
+
+  let elapsed = nowMin - startMin;
+  let remaining = endMin - nowMin;
+  let pct = 0;
+
+  let status = '';
+  if (nowMin < startMin) {
+    elapsed = 0; remaining = totalMin; pct = 0;
+    status = '출근 전';
+  } else if (nowMin >= endMin) {
+    elapsed = totalMin; remaining = 0; pct = 100;
+    status = '퇴근!';
+  } else {
+    pct = (elapsed / totalMin * 100);
+    const rh = Math.floor(remaining / 60);
+    const rm = remaining % 60;
+    status = `${rh}시간 ${rm}분 남음`;
+  }
+
+  const settingsHtml = showWorkSettings ? `
+    <div class="workbar-settings">
+      <input type="time" value="${workConfig.start}" onclick="event.stopPropagation()" onchange="workSetStart(this.value)">
+      <span>~</span>
+      <input type="time" value="${workConfig.end}" onclick="event.stopPropagation()" onchange="workSetEnd(this.value)">
+    </div>
+  ` : '';
+
+  document.getElementById('workbar').innerHTML = `
+    <div class="workbar" onclick="workToggleSettings()">
+      <div class="workbar-track">
+        <div class="workbar-fill" style="width:${pct.toFixed(1)}%"></div>
+        <div class="workbar-now" style="left:${Math.min(Math.max(pct, 0), 98).toFixed(1)}%"></div>
+      </div>
+      <div class="workbar-tooltip">${status}</div>
+    </div>
+    ${settingsHtml}
+  `;
+}
+
+function workToggleSettings() {
+  showWorkSettings = !showWorkSettings;
+  workRender();
+}
+
+function workSetStart(val) {
+  workConfig.start = val;
+  workSave();
+  workRender();
+}
+
+function workSetEnd(val) {
+  workConfig.end = val;
+  workSave();
+  workRender();
+}
+
+// 1분마다 근무바 업데이트
+setInterval(workRender, 60000);
+
+// ─── 뽀모도로 타이머 ───
+const POMO = {
+  work: 25 * 60,
+  shortBreak: 5 * 60,
+  longBreak: 15 * 60,
+};
+
+let pomoState = {
+  phase: 'work',      // work | break
+  remaining: POMO.work,
+  total: POMO.work,
+  running: false,
+  sessions: 0,
+  interval: null,
+};
+
+function pomoLoad() {
+  try {
+    const raw = localStorage.getItem('pink_pomo');
+    if (raw) {
+      const saved = JSON.parse(raw);
+      pomoState.sessions = saved.sessions || 0;
+    }
+  } catch {}
+}
+
+function pomoSave() {
+  localStorage.setItem('pink_pomo', JSON.stringify({ sessions: pomoState.sessions }));
+}
+
+function pomoFormat(sec) {
+  const m = Math.floor(sec / 60).toString().padStart(2, '0');
+  const s = (sec % 60).toString().padStart(2, '0');
+  return m + ':' + s;
+}
+
+function pomoRender() {
+  const isWork = pomoState.phase === 'work';
+  const col = isWork ? { bg: '#FF69B412', border: '#FF69B440', dark: '#D4458E', main: '#FF69B4' }
+                     : { bg: '#D4A5FF12', border: '#D4A5FF40', dark: '#A87AD4', main: '#D4A5FF' };
+  const pct = ((pomoState.total - pomoState.remaining) / pomoState.total * 100).toFixed(1);
+
+  document.getElementById('pomodoro').innerHTML = `
+    <div class="pomo" style="background:${col.bg}; border-color:${col.border};">
+      <div class="pomo-header">
+        <span class="pomo-label" style="color:${col.dark}">🍅 뽀모도로</span>
+        <span class="pomo-phase" style="background:${col.main}30; color:${col.dark}">
+          ${isWork ? '집중' : '휴식'}
+        </span>
+      </div>
+      <div class="pomo-time" style="color:${col.dark}">${pomoFormat(pomoState.remaining)}</div>
+      <div class="pomo-bar">
+        <div class="pomo-bar-fill" style="width:${pct}%; background:${col.main}"></div>
+      </div>
+      <div class="pomo-buttons">
+        <button class="pomo-btn" style="background:${col.main}30; color:${col.dark}"
+          onclick="pomoToggle()">${pomoState.running ? '일시정지' : '시작'}</button>
+        <button class="pomo-btn" style="background:${col.main}15; color:${col.dark}"
+          onclick="pomoReset()">리셋</button>
+        <button class="pomo-btn" style="background:${col.main}15; color:${col.dark}"
+          onclick="pomoSkip()">건너뛰기</button>
+      </div>
+      <div class="pomo-sessions" style="color:${col.dark}">완료 세션: ${pomoState.sessions}회</div>
+    </div>
+  `;
+}
+
+function pomoToggle() {
+  if (pomoState.running) {
+    clearInterval(pomoState.interval);
+    pomoState.running = false;
+  } else {
+    pomoState.running = true;
+    pomoState.interval = setInterval(pomoTick, 1000);
+  }
+  pomoRender();
+}
+
+function pomoTick() {
+  if (pomoState.remaining <= 0) {
+    clearInterval(pomoState.interval);
+    pomoState.running = false;
+
+    // 알림
+    if (pomoState.phase === 'work') {
+      pomoState.sessions++;
+      pomoSave();
+      new Notification('🍅 집중 끝!', { body: `${pomoState.sessions}번째 세션 완료. 휴식하세요!` });
+      pomoState.phase = 'break';
+      pomoState.remaining = pomoState.sessions % 4 === 0 ? POMO.longBreak : POMO.shortBreak;
+      pomoState.total = pomoState.remaining;
+    } else {
+      new Notification('☕ 휴식 끝!', { body: '다시 집중할 시간!' });
+      pomoState.phase = 'work';
+      pomoState.remaining = POMO.work;
+      pomoState.total = POMO.work;
+    }
+    pomoRender();
+    return;
+  }
+  pomoState.remaining--;
+  pomoRender();
+}
+
+function pomoReset() {
+  clearInterval(pomoState.interval);
+  pomoState.running = false;
+  pomoState.phase = 'work';
+  pomoState.remaining = POMO.work;
+  pomoState.total = POMO.work;
+  pomoRender();
+}
+
+function pomoSkip() {
+  clearInterval(pomoState.interval);
+  pomoState.running = false;
+  if (pomoState.phase === 'work') {
+    pomoState.sessions++;
+    pomoSave();
+    pomoState.phase = 'break';
+    pomoState.remaining = pomoState.sessions % 4 === 0 ? POMO.longBreak : POMO.shortBreak;
+    pomoState.total = pomoState.remaining;
+  } else {
+    pomoState.phase = 'work';
+    pomoState.remaining = POMO.work;
+    pomoState.total = POMO.work;
+  }
+  pomoRender();
+}
+
 // 초기화
 load();
 render();
+workLoad();
+workRender();
+pomoLoad();
+pomoRender();
 </script>
 </body>
 </html>
